@@ -144,7 +144,7 @@ export default function DashboardPage() {
                 ))}
               </div>
               <div className="mt-6 text-center">
-                <Link href="/dashboard/applications">
+                <Link href="/dashboard/applicants">
                   <Button variant="outline" size="sm">
                     View All Applications
                   </Button>

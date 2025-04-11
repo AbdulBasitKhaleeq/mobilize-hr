@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, Save, X } from "lucide-react"
@@ -18,26 +17,207 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import DashboardLayout from "../../../layouts/dashboard-layout"
+import { jobService, Job, JobStatus, JobType, ExperienceLevel, userService } from "@/lib/firebase/db"
+import type { User, UserRole, UserStatus, UserPermissions } from "@/lib/firebase/db"
+import { useAuth } from "@/contexts/AuthContext"
+import { Badge } from "@/components/ui/badge"
+
+interface FirebaseUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  department: string;
+  status: UserStatus;
+  createdAt: Date;
+  lastActiveAt: Date;
+  permissions: UserPermissions;
+}
 
 export default function CreateJobPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { user } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [jobStatus, setJobStatus] = useState("draft")
+  const [interviewers, setInterviewers] = useState<FirebaseUser[]>([])
+  const [hrManagers, setHrManagers] = useState<FirebaseUser[]>([])
+  const [formData, setFormData] = useState({
+    title: "",
+    department: "",
+    team: "",
+    type: "full-time" as JobType,
+    experienceLevel: "mid" as ExperienceLevel,
+    location: "",
+    isRemote: false,
+    remoteRegions: "",
+    salaryMin: 0,
+    salaryMax: 0,
+    salaryCurrency: "usd",
+    salaryVisible: true,
+    benefits: "",
+    summary: "",
+    description: "",
+    requirements: [""],
+    responsibilities: [""],
+    skills: "",
+    education: "",
+    certifications: "",
+    status: "draft" as JobStatus,
+    interviewers: [] as string[],
+    hrManagers: [] as string[],
+  })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const [interviewerUsers, hrManagerUsers] = await Promise.all([
+          userService.getUsers({ role: 'interviewer', status: 'active' }),
+          userService.getUsers({ role: 'hr_manager', status: 'active' })
+        ])
+        setInterviewers(interviewerUsers?.map(user => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: user.department,
+          status: user.status,
+          createdAt: user.createdAt,
+          lastActiveAt: user.lastActiveAt,
+          permissions: {
+            canViewUsers: user.permissions.canViewUsers,
+            canEditUsers: user.permissions.canEditUsers,
+            canDeleteUsers: user.permissions.canDeleteUsers,
+            canCreateUsers: user.permissions.canCreateUsers,
+            canViewDepartments: user.permissions.canViewDepartments,
+            canEditDepartments: user.permissions.canEditDepartments,
+            canDeleteDepartments: user.permissions.canDeleteDepartments,
+            canCreateDepartments: user.permissions.canCreateDepartments,
+          },
+        })))
+        setHrManagers(hrManagerUsers?.map(user => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: user.department,
+          status: user.status,
+          createdAt: user.createdAt,
+          lastActiveAt: user.lastActiveAt,
+          permissions: {
+            canViewUsers: user.permissions.canViewUsers,
+            canEditUsers: user.permissions.canEditUsers,
+            canDeleteUsers: user.permissions.canDeleteUsers,
+            canCreateUsers: user.permissions.canCreateUsers,
+            canViewDepartments: user.permissions.canViewDepartments,
+            canEditDepartments: user.permissions.canEditDepartments,
+            canDeleteDepartments: user.permissions.canDeleteDepartments,
+            canCreateDepartments: user.permissions.canCreateDepartments,
+          },
+        })))
+      } catch (error) {
+        console.error('Error fetching users:', error)
+        toast({
+          title: 'Error',
+          description: 'Failed to fetch users',
+          variant: 'destructive',
+        })
+      }
+    }
+
+    fetchUsers()
+  }, [toast])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
+    if (!user) return
 
-    // Simulate form submission
-    setTimeout(() => {
-      setIsSubmitting(false)
+    try {
+      setIsSubmitting(true)
+      const jobData: Omit<Job, 'id' | 'createdAt' | 'updatedAt' | 'applicationsCount'> = {
+        title: formData.title,
+        description: formData.description,
+        requirements: formData.requirements,
+        responsibilities: formData.responsibilities,
+        location: formData.location,
+        salaryMin: formData.salaryMin,
+        salaryMax: formData.salaryMax,
+        salaryCurrency: formData.salaryCurrency,
+        salaryVisible: formData.salaryVisible,
+        type: formData.type,
+        status: 'draft',
+        createdBy: user.uid,
+        interviewers: formData.interviewers,
+        hrManagers: formData.hrManagers,
+        department: formData.department,
+        team: formData.team,
+        experienceLevel: formData.experienceLevel,
+        isRemote: formData.isRemote,
+        remoteRegions: formData.remoteRegions,
+        benefits: formData.benefits,
+        summary: formData.summary,
+        skills: formData.skills.split(',').map(skill => skill.trim()),
+        education: formData.education,
+        certifications: formData.certifications
+      }
+
+      await jobService.createJob(jobData)
+      router.push('/dashboard/jobs')
+    } catch (error) {
+      console.error('Error creating job:', error)
       toast({
-        title: "Job Created",
-        description: "Your job listing has been successfully created.",
+        title: 'Error',
+        description: 'Failed to create job. Please try again.',
+        variant: 'destructive',
       })
-      router.push("/dashboard/jobs")
-    }, 1500)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const addRequirement = () => {
+    setFormData({
+      ...formData,
+      requirements: [...formData.requirements, ""],
+    })
+  }
+
+  const removeRequirement = (index: number) => {
+    setFormData({
+      ...formData,
+      requirements: formData.requirements.filter((_, i) => i !== index),
+    })
+  }
+
+  const updateRequirement = (index: number, value: string) => {
+    const newRequirements = [...formData.requirements]
+    newRequirements[index] = value
+    setFormData({
+      ...formData,
+      requirements: newRequirements,
+    })
+  }
+
+  const addResponsibility = () => {
+    setFormData({
+      ...formData,
+      responsibilities: [...formData.responsibilities, ""],
+    })
+  }
+
+  const removeResponsibility = (index: number) => {
+    setFormData({
+      ...formData,
+      responsibilities: formData.responsibilities.filter((_, i) => i !== index),
+    })
+  }
+
+  const updateResponsibility = (index: number, value: string) => {
+    const newResponsibilities = [...formData.responsibilities]
+    newResponsibilities[index] = value
+    setFormData({
+      ...formData,
+      responsibilities: newResponsibilities,
+    })
   }
 
   return (
@@ -88,7 +268,13 @@ export default function CreateJobPage() {
                         <Label htmlFor="title">
                           Job Title <span className="text-red-500">*</span>
                         </Label>
-                        <Input id="title" placeholder="e.g. Senior Frontend Developer" required />
+                        <Input 
+                          id="title" 
+                          placeholder="e.g. Senior Frontend Developer" 
+                          required
+                          value={formData.title}
+                          onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                        />
                       </div>
                     </div>
 
@@ -97,7 +283,11 @@ export default function CreateJobPage() {
                         <Label htmlFor="department">
                           Department <span className="text-red-500">*</span>
                         </Label>
-                        <Select required>
+                        <Select 
+                          required
+                          value={formData.department}
+                          onValueChange={(value) => setFormData({ ...formData, department: value })}
+                        >
                           <SelectTrigger id="department">
                             <SelectValue placeholder="Select department" />
                           </SelectTrigger>
@@ -117,7 +307,12 @@ export default function CreateJobPage() {
 
                       <div className="space-y-2">
                         <Label htmlFor="team">Team (Optional)</Label>
-                        <Input id="team" placeholder="e.g. Frontend Team" />
+                        <Input 
+                          id="team" 
+                          placeholder="e.g. Frontend Team"
+                          value={formData.team}
+                          onChange={(e) => setFormData({ ...formData, team: e.target.value })}
+                        />
                       </div>
                     </div>
 
@@ -126,7 +321,11 @@ export default function CreateJobPage() {
                         <Label htmlFor="type">
                           Employment Type <span className="text-red-500">*</span>
                         </Label>
-                        <Select required>
+                        <Select 
+                          required
+                          value={formData.type}
+                          onValueChange={(value: JobType) => setFormData({ ...formData, type: value })}
+                        >
                           <SelectTrigger id="type">
                             <SelectValue placeholder="Select employment type" />
                           </SelectTrigger>
@@ -144,7 +343,11 @@ export default function CreateJobPage() {
                         <Label htmlFor="experience">
                           Experience Level <span className="text-red-500">*</span>
                         </Label>
-                        <Select required>
+                        <Select 
+                          required
+                          value={formData.experienceLevel}
+                          onValueChange={(value: ExperienceLevel) => setFormData({ ...formData, experienceLevel: value })}
+                        >
                           <SelectTrigger id="experience">
                             <SelectValue placeholder="Select experience level" />
                           </SelectTrigger>
@@ -170,7 +373,11 @@ export default function CreateJobPage() {
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div className="flex items-center space-x-2">
-                      <Checkbox id="remote" />
+                      <Checkbox 
+                        id="remote" 
+                        checked={formData.isRemote}
+                        onCheckedChange={(checked) => setFormData({ ...formData, isRemote: checked as boolean })}
+                      />
                       <Label htmlFor="remote">This is a remote position</Label>
                     </div>
 
@@ -179,12 +386,21 @@ export default function CreateJobPage() {
                         <Label htmlFor="location">
                           Location <span className="text-red-500">*</span>
                         </Label>
-                        <Input id="location" placeholder="e.g. San Francisco, CA" required />
+                        <Input 
+                          id="location" 
+                          placeholder="e.g. San Francisco, CA" 
+                          required
+                          value={formData.location}
+                          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="remote-regions">Remote Regions (Optional)</Label>
-                        <Select>
+                        <Select
+                          value={formData.remoteRegions}
+                          onValueChange={(value) => setFormData({ ...formData, remoteRegions: value })}
+                        >
                           <SelectTrigger id="remote-regions">
                             <SelectValue placeholder="Select remote regions" />
                           </SelectTrigger>
@@ -203,7 +419,11 @@ export default function CreateJobPage() {
 
                     <div className="space-y-2">
                       <Label>Salary Visibility</Label>
-                      <RadioGroup defaultValue="visible" className="flex flex-col space-y-1">
+                      <RadioGroup 
+                        value={formData.salaryVisible ? "visible" : "hidden"}
+                        onValueChange={(value) => setFormData({ ...formData, salaryVisible: value === "visible" })}
+                        className="flex flex-col space-y-1"
+                      >
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="visible" id="salary-visible" />
                           <Label htmlFor="salary-visible">Display salary range on job posting</Label>
@@ -218,17 +438,32 @@ export default function CreateJobPage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="salary-min">Minimum Salary</Label>
-                        <Input id="salary-min" type="number" placeholder="e.g. 80000" />
+                        <Input 
+                          id="salary-min" 
+                          type="number" 
+                          placeholder="e.g. 80000"
+                          value={formData.salaryMin}
+                          onChange={(e) => setFormData({ ...formData, salaryMin: parseInt(e.target.value) })}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="salary-max">Maximum Salary</Label>
-                        <Input id="salary-max" type="number" placeholder="e.g. 120000" />
+                        <Input 
+                          id="salary-max" 
+                          type="number" 
+                          placeholder="e.g. 120000"
+                          value={formData.salaryMax}
+                          onChange={(e) => setFormData({ ...formData, salaryMax: parseInt(e.target.value) })}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="salary-currency">Currency</Label>
-                        <Select defaultValue="usd">
+                        <Select
+                          value={formData.salaryCurrency}
+                          onValueChange={(value) => setFormData({ ...formData, salaryCurrency: value })}
+                        >
                           <SelectTrigger id="salary-currency">
                             <SelectValue placeholder="Select currency" />
                           </SelectTrigger>
@@ -248,7 +483,8 @@ export default function CreateJobPage() {
                       <Textarea
                         id="benefits"
                         placeholder="e.g. Health insurance, 401(k), Flexible working hours, etc."
-                        rows={3}
+                        value={formData.benefits}
+                        onChange={(e) => setFormData({ ...formData, benefits: e.target.value })}
                       />
                     </div>
                   </div>
@@ -260,100 +496,73 @@ export default function CreateJobPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Job Description</CardTitle>
-                  <CardDescription>Provide a detailed description of the job position</CardDescription>
+                  <CardDescription>Write a detailed description of the job position</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="summary">
-                        Summary <span className="text-red-500">*</span>
-                      </Label>
-                      <Textarea
-                        id="summary"
-                        placeholder="Provide a brief summary of the job position"
-                        rows={3}
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        This will appear at the top of the job posting. Keep it concise and engaging.
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
                       <Label htmlFor="description">
-                        Full Description <span className="text-red-500">*</span>
+                        Description <span className="text-red-500">*</span>
                       </Label>
                       <Textarea
                         id="description"
-                        placeholder="Provide a detailed description of the job position"
-                        rows={10}
+                        placeholder="Describe the job position..."
                         required
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        You can use Markdown formatting for headings, lists, and emphasis.
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="requirements">
-                        Requirements <span className="text-red-500">*</span>
-                      </Label>
-                      <Textarea
-                        id="requirements"
-                        placeholder="List the requirements for the job position"
-                        rows={5}
-                        required
+                        value={formData.description}
+                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="responsibilities">
-                        Responsibilities <span className="text-red-500">*</span>
-                      </Label>
-                      <Textarea
-                        id="responsibilities"
-                        placeholder="List the responsibilities for the job position"
-                        rows={5}
-                        required
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Skills & Qualifications</CardTitle>
-                  <CardDescription>Specify the skills and qualifications required for the job</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="skills">
-                        Required Skills <span className="text-red-500">*</span>
-                      </Label>
-                      <Textarea id="skills" placeholder="e.g. React, TypeScript, Node.js, etc." rows={3} required />
-                      <p className="text-xs text-muted-foreground">
-                        Enter skills separated by commas. These will be used for matching candidates.
-                      </p>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <Label>Requirements</Label>
+                        <Button type="button" variant="outline" size="sm" onClick={addRequirement}>
+                          Add Requirement
+                        </Button>
+                      </div>
+                      {formData.requirements.map((requirement, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <Input
+                            placeholder="Enter a requirement..."
+                            value={requirement}
+                            onChange={(e) => updateRequirement(index, e.target.value)}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeRequirement(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="education">Education Requirements (Optional)</Label>
-                      <Textarea
-                        id="education"
-                        placeholder="e.g. Bachelor's degree in Computer Science or related field"
-                        rows={2}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="certifications">Certifications (Optional)</Label>
-                      <Textarea
-                        id="certifications"
-                        placeholder="e.g. AWS Certified Solutions Architect, PMP, etc."
-                        rows={2}
-                      />
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <Label>Responsibilities</Label>
+                        <Button type="button" variant="outline" size="sm" onClick={addResponsibility}>
+                          Add Responsibility
+                        </Button>
+                      </div>
+                      {formData.responsibilities.map((responsibility, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <Input
+                            placeholder="Enter a responsibility..."
+                            value={responsibility}
+                            onChange={(e) => updateResponsibility(index, e.target.value)}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeResponsibility(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </CardContent>
@@ -363,142 +572,131 @@ export default function CreateJobPage() {
             <TabsContent value="settings" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Application Settings</CardTitle>
-                  <CardDescription>Configure how candidates can apply for this job</CardDescription>
+                  <CardTitle>Job Settings</CardTitle>
+                  <CardDescription>Configure additional settings for the job posting</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Application Method</Label>
-                      <RadioGroup defaultValue="internal" className="flex flex-col space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="internal" id="internal" />
-                          <Label htmlFor="internal">Use internal application form</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="external" id="external" />
-                          <Label htmlFor="external">Redirect to external application URL</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="email" id="email" />
-                          <Label htmlFor="email">Receive applications via email</Label>
-                        </div>
-                      </RadioGroup>
+                      <Label htmlFor="status">Status</Label>
+                      <Select
+                        value={formData.status}
+                        onValueChange={(value: JobStatus) => setFormData({ ...formData, status: value })}
+                      >
+                        <SelectTrigger id="status">
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="draft">Draft</SelectItem>
+                          <SelectItem value="published">Published</SelectItem>
+                          <SelectItem value="closed">Closed</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="application-url">External Application URL (Optional)</Label>
-                      <Input id="application-url" placeholder="e.g. https://yourcompany.com/careers/apply" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="application-email">Application Email (Optional)</Label>
-                      <Input id="application-email" type="email" placeholder="e.g. careers@yourcompany.com" />
-                    </div>
-
-                    <Separator />
-
-                    <div className="space-y-2">
-                      <Label>Required Documents</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="require-resume" defaultChecked />
-                          <Label htmlFor="require-resume">Resume/CV</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="require-cover-letter" />
-                          <Label htmlFor="require-cover-letter">Cover Letter</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="require-portfolio" />
-                          <Label htmlFor="require-portfolio">Portfolio</Label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Publication Settings</CardTitle>
-                  <CardDescription>Configure when and how the job will be published</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Job Status</Label>
-                      <RadioGroup value={jobStatus} onValueChange={setJobStatus} className="flex flex-col space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="draft" id="draft" />
-                          <Label htmlFor="draft">Save as Draft</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="published" id="published" />
-                          <Label htmlFor="published">Publish Immediately</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="scheduled" id="scheduled" />
-                          <Label htmlFor="scheduled">Schedule Publication</Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-
-                    {jobStatus === "scheduled" && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="publish-date">Publication Date</Label>
-                          <Input id="publish-date" type="date" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="publish-time">Publication Time</Label>
-                          <Input id="publish-time" type="time" />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="expiry-date">Expiry Date (Optional)</Label>
-                        <Input id="expiry-date" type="date" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="expiry-time">Expiry Time (Optional)</Label>
-                        <Input id="expiry-time" type="time" />
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="space-y-2">
-                      <Label>Job Visibility</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="visibility-website" defaultChecked />
-                          <Label htmlFor="visibility-website">Company Website</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="visibility-job-boards" defaultChecked />
-                          <Label htmlFor="visibility-job-boards">External Job Boards</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="visibility-internal" />
-                          <Label htmlFor="visibility-internal">Internal Employees Only</Label>
-                        </div>
+                      <Label>Interviewers</Label>
+                      <Select
+                        value=""
+                        onValueChange={(value) => {
+                          if (!formData.interviewers.includes(value)) {
+                            setFormData({
+                              ...formData,
+                              interviewers: [...formData.interviewers, value],
+                            })
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select interviewers" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {interviewers.map((user) => {
+                            const id = (user as any).id
+                            return (
+                              <SelectItem key={id} value={id}>
+                                {user.name}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {formData.interviewers.map((interviewerId) => {
+                          const interviewer = interviewers.find(u => (u as any).id === interviewerId)
+                          return (
+                            <Badge key={interviewerId} variant="secondary">
+                              {interviewer?.name || 'Unknown User'}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-4 w-4 ml-1"
+                                onClick={() => {
+                                  setFormData({
+                                    ...formData,
+                                    interviewers: formData.interviewers.filter((id) => id !== interviewerId),
+                                  })
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </Badge>
+                          )
+                        })}
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Notifications</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="notify-applications" defaultChecked />
-                          <Label htmlFor="notify-applications">Notify me when someone applies</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="notify-expiry" defaultChecked />
-                          <Label htmlFor="notify-expiry">Notify me before job expires</Label>
-                        </div>
+                      <Label>HR Managers</Label>
+                      <Select
+                        value=""
+                        onValueChange={(value) => {
+                          if (!formData.hrManagers.includes(value)) {
+                            setFormData({
+                              ...formData,
+                              hrManagers: [...formData.hrManagers, value],
+                            })
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select HR managers" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {hrManagers.map((user) => {
+                            const id = (user as any).id
+                            return (
+                              <SelectItem key={id} value={id}>
+                                {user.name}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {formData.hrManagers.map((hrManagerId) => {
+                          const hrManager = hrManagers.find(u => (u as any).id === hrManagerId)
+                          return (
+                            <Badge key={hrManagerId} variant="secondary">
+                              {hrManager?.name || 'Unknown User'}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-4 w-4 ml-1"
+                                onClick={() => {
+                                  setFormData({
+                                    ...formData,
+                                    hrManagers: formData.hrManagers.filter((id) => id !== hrManagerId),
+                                  })
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </Badge>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
@@ -506,15 +704,6 @@ export default function CreateJobPage() {
               </Card>
             </TabsContent>
           </Tabs>
-
-          <div className="flex justify-end mt-6 gap-2">
-            <Button variant="outline" onClick={() => router.push("/dashboard/jobs")}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Creating..." : "Create Job"}
-            </Button>
-          </div>
         </form>
       </div>
     </DashboardLayout>

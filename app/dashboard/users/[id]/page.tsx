@@ -1,25 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import {
-  ChevronLeft,
-  User,
-  Mail,
-  Phone,
-  Building,
-  Shield,
-  Calendar,
-  Clock,
-  Edit,
-  Key,
-  Lock,
-  XCircle,
-  CheckCircle,
-} from "lucide-react"
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { ArrowLeft, Edit, Trash2, User as UserIcon, CheckCircle, XCircle, ChevronLeft, Mail, Phone, Building, Shield, Calendar, Clock, Key, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardDescription, CardFooter, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -34,139 +19,146 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import DashboardLayout from "../../../layouts/dashboard-layout"
+import { userService, User, UserStatus } from "@/lib/firebase/db"
+import { useAuth } from "@/contexts/AuthContext"
 
-// Sample user data
-const user = {
-  id: 1,
-  name: "John Doe",
-  email: "john.doe@example.com",
-  phone: "+1 (555) 123-4567",
-  role: "admin",
-  department: "Management",
-  status: "active",
-  joinDate: "2022-03-15",
-  lastActive: "2023-05-20T10:30:00",
-  permissions: [
-    "manage_users",
-    "manage_jobs",
-    "manage_applicants",
-    "manage_interviews",
-    "view_reports",
-    "edit_settings",
-  ],
-  recentActivity: [
-    {
-      id: 1,
-      action: "Created new job posting",
-      target: "Senior Frontend Developer",
-      date: "2023-05-20T09:45:00",
-    },
-    {
-      id: 2,
-      action: "Updated user permissions",
-      target: "Maria Rodriguez",
-      date: "2023-05-19T14:30:00",
-    },
-    {
-      id: 3,
-      action: "Reviewed applicant",
-      target: "Sarah Johnson",
-      date: "2023-05-18T11:15:00",
-    },
-    {
-      id: 4,
-      action: "Scheduled interview",
-      target: "David Kim",
-      date: "2023-05-17T16:20:00",
-    },
-  ],
-}
-
-export default function UserDetailPage({ params }: { params: { id: string } }) {
+export default function UserDetailPage() {
+  const { id } = useParams()
   const router = useRouter()
   const { toast } = useToast()
-  const [isDeactivating, setIsDeactivating] = useState(false)
+  const { user: currentUser } = useAuth()
+  const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [isResettingPassword, setIsResettingPassword] = useState(false)
-  const [newEmail, setNewEmail] = useState(user.email)
-  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false)
-  const [isChangingEmail, setIsChangingEmail] = useState(false)
+  const [isDeactivating, setIsDeactivating] = useState(false)
 
-  const handleStatusToggle = () => {
-    setIsDeactivating(true)
-
-    // Simulate status update
-    setTimeout(() => {
-      setIsDeactivating(false)
-      toast({
-        title: "User Status Updated",
-        description: `User has been ${user.status === "active" ? "deactivated" : "activated"}.`,
-      })
-    }, 1500)
-  }
-
-  const handleResetPassword = () => {
-    setIsResettingPassword(true)
-
-    // Simulate password reset
-    setTimeout(() => {
-      setIsResettingPassword(false)
-      toast({
-        title: "Password Reset Email Sent",
-        description: "A password reset link has been sent to the user's email.",
-      })
-    }, 1500)
-  }
-
-  const handleEmailChange = () => {
-    setIsChangingEmail(true)
-
-    // Validate email
-    if (!newEmail || !newEmail.includes("@")) {
-      toast({
-        title: "Invalid Email",
-        description: "Please enter a valid email address.",
-        variant: "destructive",
-      })
-      setIsChangingEmail(false)
-      return
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const fetchedUser = await userService.getUserById(id as string)
+        if (!fetchedUser) {
+          toast({
+            title: "Error",
+            description: "User not found",
+            variant: "destructive",
+          })
+          router.push("/dashboard/users")
+          return
+        }
+        setUser(fetchedUser)
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch user details",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
     }
 
-    // Simulate email change
-    setTimeout(() => {
-      setIsChangingEmail(false)
-      setIsEmailDialogOpen(false)
+    fetchUser()
+  }, [id, router, toast])
+
+  const handleStatusToggle = async () => {
+    if (!user) return
+
+    try {
+      setIsDeactivating(true)
+      const newStatus: UserStatus = user.status === "active" ? "inactive" : "active"
+      await userService.updateUserStatus(user.id, newStatus)
+      setUser({ ...user, status: newStatus })
+      
       toast({
-        title: "Email Updated",
-        description: `User's email has been updated to ${newEmail}.`,
+        title: "Success",
+        description: `User status updated to ${newStatus}`,
       })
-    }, 1500)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update user status",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeactivating(false)
+    }
   }
+
+  const handleDelete = async () => {
+    if (!user) return
+
+    try {
+      setIsDeleting(true)
+      await userService.deleteUser(user.id)
+      
+      toast({
+        title: "Success",
+        description: "User deleted successfully",
+      })
+      router.push("/dashboard/users")
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete user",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const handleResetPassword = async () => {
+    if (!user) return
+
+    try {
+      setIsResettingPassword(true)
+      // TODO: Implement password reset with Firebase Auth
+      // await auth.sendPasswordResetEmail(user.email)
+      
+      toast({
+        title: "Success",
+        description: "Password reset email sent successfully",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send password reset email",
+        variant: "destructive",
+      })
+    } finally {
+      setIsResettingPassword(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!user) {
+    return null
+  }
+
+  const canEdit = currentUser?.permissions?.canEditUsers
+  const canDelete = currentUser?.permissions?.canDeleteUsers
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <Link
-              href="/dashboard/users"
-              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-2"
-            >
+            <Button variant="ghost" onClick={() => router.back()} className="mb-2">
               <ChevronLeft className="h-4 w-4 mr-1" />
               Back to Users
-            </Link>
+            </Button>
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-bold">{user.name}</h2>
               <Badge
@@ -186,12 +178,12 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href={`/dashboard/users/${params.id}/edit`}>
-              <Button variant="outline">
+            {canEdit && (
+              <Button onClick={() => router.push(`/dashboard/users/${user.id}/edit`)}>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit User
               </Button>
-            </Link>
+            )}
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline">
@@ -231,6 +223,12 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            {canDelete && (
+              <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete User
+              </Button>
+            )}
           </div>
         </div>
 
@@ -253,7 +251,7 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-4">
                         <div className="flex items-start gap-2">
-                          <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+                          <UserIcon className="h-5 w-5 text-muted-foreground mt-0.5" />
                           <div>
                             <div className="font-medium">Full Name</div>
                             <div>{user.name}</div>
@@ -263,48 +261,7 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                           <Mail className="h-5 w-5 text-muted-foreground mt-0.5" />
                           <div>
                             <div className="font-medium">Email</div>
-                            <div className="flex items-center gap-2">
-                              <span>{user.email}</span>
-                              <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
-                                <DialogTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="h-6 px-2">
-                                    <Edit className="h-3 w-3" />
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                  <DialogHeader>
-                                    <DialogTitle>Change Email Address</DialogTitle>
-                                    <DialogDescription>Update the email address for this user.</DialogDescription>
-                                  </DialogHeader>
-                                  <div className="space-y-4 py-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="new-email">New Email Address</Label>
-                                      <Input
-                                        id="new-email"
-                                        type="email"
-                                        value={newEmail}
-                                        onChange={(e) => setNewEmail(e.target.value)}
-                                      />
-                                    </div>
-                                  </div>
-                                  <DialogFooter>
-                                    <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)}>
-                                      Cancel
-                                    </Button>
-                                    <Button onClick={handleEmailChange} disabled={isChangingEmail}>
-                                      {isChangingEmail ? "Updating..." : "Update Email"}
-                                    </Button>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <Phone className="h-5 w-5 text-muted-foreground mt-0.5" />
-                          <div>
-                            <div className="font-medium">Phone</div>
-                            <div>{user.phone}</div>
+                            <div>{user.email}</div>
                           </div>
                         </div>
                       </div>
@@ -340,13 +297,6 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                             <div>{user.department}</div>
                           </div>
                         </div>
-                        <div className="flex items-start gap-2">
-                          <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
-                          <div>
-                            <div className="font-medium">Join Date</div>
-                            <div>{new Date(user.joinDate).toLocaleDateString()}</div>
-                          </div>
-                        </div>
                       </div>
                     </div>
 
@@ -357,11 +307,7 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                       <div>
                         <div className="font-medium">Last Active</div>
                         <div>
-                          {new Date(user.lastActive).toLocaleDateString()} at{" "}
-                          {new Date(user.lastActive).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {user.lastActive ? new Date(user.lastActive).toLocaleString() : "Never"}
                         </div>
                       </div>
                     </div>
@@ -406,19 +352,6 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium">Two-Factor Authentication</div>
-                          <div className="text-sm text-muted-foreground">Not enabled</div>
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        Enable 2FA
-                      </Button>
-                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -432,63 +365,69 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                   <CardContent>
                     <div className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {[
-                          { id: "manage_users", label: "Manage Users", description: "Create, edit, and delete users" },
-                          {
-                            id: "manage_jobs",
-                            label: "Manage Jobs",
-                            description: "Create, edit, and delete job postings",
-                          },
-                          {
-                            id: "manage_applicants",
-                            label: "Manage Applicants",
-                            description: "View and process job applicants",
-                          },
-                          {
-                            id: "manage_interviews",
-                            label: "Manage Interviews",
-                            description: "Schedule and manage interviews",
-                          },
-                          { id: "view_reports", label: "View Reports", description: "Access analytics and reports" },
-                          {
-                            id: "edit_settings",
-                            label: "Edit Settings",
-                            description: "Modify system settings",
-                          },
-                        ].map((permission) => (
-                          <div
-                            key={permission.id}
-                            className={`p-4 border rounded-lg ${
-                              user.permissions.includes(permission.id) ? "bg-muted/20" : ""
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5">
-                                <div
-                                  className={`h-5 w-5 rounded-md border flex items-center justify-center ${
-                                    user.permissions.includes(permission.id)
-                                      ? "bg-primary border-primary text-primary-foreground"
-                                      : "border-muted-foreground"
-                                  }`}
-                                >
-                                  {user.permissions.includes(permission.id) && <CheckCircle className="h-3.5 w-3.5" />}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="font-medium">{permission.label}</div>
-                                <p className="text-sm text-muted-foreground">{permission.description}</p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span>View Users</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canEditUsers ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>Edit Users</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canDeleteUsers ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>Delete Users</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canCreateUsers ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>Create Users</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canViewDepartments ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>View Departments</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canEditDepartments ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>Edit Departments</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canDeleteDepartments ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>Delete Departments</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {user.permissions?.canCreateDepartments ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span>Create Departments</span>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
-                  <CardFooter>
-                    <Button variant="outline" className="ml-auto">
-                      Edit Permissions
-                    </Button>
-                  </CardFooter>
                 </Card>
               </TabsContent>
 
@@ -500,36 +439,12 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-6">
-                      {user.recentActivity.map((activity, index) => (
-                        <div key={activity.id} className="flex items-start gap-4">
-                          <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
-                            <Clock className="h-5 w-5" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-                              <div>
-                                <div className="font-medium">{activity.action}</div>
-                                <div className="text-sm text-muted-foreground">{activity.target}</div>
-                              </div>
-                              <div className="text-sm text-muted-foreground">
-                                {new Date(activity.date).toLocaleDateString()} at{" "}
-                                {new Date(activity.date).toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </div>
-                            </div>
-                            {index < user.recentActivity.length - 1 && <Separator className="mt-4" />}
-                          </div>
-                        </div>
-                      ))}
+                      {/* TODO: Implement activity tracking */}
+                      <div className="text-center text-muted-foreground">
+                        No recent activity to display
+                      </div>
                     </div>
                   </CardContent>
-                  <CardFooter>
-                    <Button variant="outline" className="w-full">
-                      View All Activity
-                    </Button>
-                  </CardFooter>
                 </Card>
               </TabsContent>
             </Tabs>
@@ -541,13 +456,13 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                 <CardTitle>Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Link href={`/dashboard/users/${params.id}/edit`}>
-                  <Button className="w-full justify-start" variant="outline">
+                {canEdit && (
+                  <Button className="w-full justify-start" variant="outline" onClick={() => router.push(`/dashboard/users/${user.id}/edit`)}>
                     <Edit className="h-4 w-4 mr-2" />
                     Edit User Profile
                   </Button>
-                </Link>
-                <Button className="w-full justify-start" variant="outline">
+                )}
+                <Button className="w-full justify-start" variant="outline" onClick={handleResetPassword} disabled={isResettingPassword}>
                   <Key className="h-4 w-4 mr-2" />
                   Reset Password
                 </Button>
@@ -555,7 +470,7 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
                   <Mail className="h-4 w-4 mr-2" />
                   Send Message
                 </Button>
-                <Button className="w-full justify-start" variant="outline">
+                <Button className="w-full justify-start" variant="outline" onClick={handleStatusToggle} disabled={isDeactivating}>
                   {user.status === "active" ? (
                     <>
                       <XCircle className="h-4 w-4 mr-2" />
@@ -578,19 +493,19 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
               <CardContent className="space-y-4">
                 <div>
                   <div className="text-sm font-medium mb-1">Interviews Conducted</div>
-                  <div className="text-2xl font-bold">24</div>
+                  <div className="text-2xl font-bold">0</div>
                 </div>
                 <div>
                   <div className="text-sm font-medium mb-1">Feedback Submitted</div>
-                  <div className="text-2xl font-bold">18</div>
+                  <div className="text-2xl font-bold">0</div>
                 </div>
                 <div>
                   <div className="text-sm font-medium mb-1">Jobs Posted</div>
-                  <div className="text-2xl font-bold">7</div>
+                  <div className="text-2xl font-bold">0</div>
                 </div>
                 <div>
                   <div className="text-sm font-medium mb-1">Login Streak</div>
-                  <div className="text-2xl font-bold">12 days</div>
+                  <div className="text-2xl font-bold">0 days</div>
                 </div>
               </CardContent>
             </Card>

@@ -1,3 +1,6 @@
+"use client"
+
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { PlusCircle, Search, Filter, MoreHorizontal, Eye, Edit, Trash2, ArrowUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,89 +17,101 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import DashboardLayout from "../../layouts/dashboard-layout"
-
-// Sample job listings data
-const jobListings = [
-  {
-    id: 1,
-    title: "Senior Frontend Developer",
-    department: "Engineering",
-    location: "San Francisco, CA",
-    type: "Full-time",
-    status: "Published",
-    applications: 24,
-    datePosted: "2023-05-01",
-    dateExpires: "2023-06-01",
-  },
-  {
-    id: 2,
-    title: "Product Manager",
-    department: "Product",
-    location: "New York, NY",
-    type: "Full-time",
-    status: "Published",
-    applications: 18,
-    datePosted: "2023-05-02",
-    dateExpires: "2023-06-02",
-  },
-  {
-    id: 3,
-    title: "UX/UI Designer",
-    department: "Design",
-    location: "Remote",
-    type: "Full-time",
-    status: "Published",
-    applications: 32,
-    datePosted: "2023-05-03",
-    dateExpires: "2023-06-03",
-  },
-  {
-    id: 4,
-    title: "DevOps Engineer",
-    department: "Engineering",
-    location: "Austin, TX",
-    type: "Full-time",
-    status: "Draft",
-    applications: 0,
-    datePosted: null,
-    dateExpires: null,
-  },
-  {
-    id: 5,
-    title: "Data Scientist",
-    department: "Data",
-    location: "Boston, MA",
-    type: "Full-time",
-    status: "Published",
-    applications: 15,
-    datePosted: "2023-05-05",
-    dateExpires: "2023-06-05",
-  },
-  {
-    id: 6,
-    title: "Marketing Specialist",
-    department: "Marketing",
-    location: "Chicago, IL",
-    type: "Part-time",
-    status: "Closed",
-    applications: 28,
-    datePosted: "2023-04-10",
-    dateExpires: "2023-05-10",
-  },
-  {
-    id: 7,
-    title: "Customer Support Representative",
-    department: "Support",
-    location: "Remote",
-    type: "Full-time",
-    status: "Published",
-    applications: 42,
-    datePosted: "2023-05-07",
-    dateExpires: "2023-06-07",
-  },
-]
+import { jobService, Job, JobStatus } from "@/lib/firebase/db"
+import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/contexts/AuthContext"
 
 export default function JobListingsPage() {
+  const { toast } = useToast()
+  const { user } = useAuth()
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all")
+
+  useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        const fetchedJobs = await jobService.getJobs(
+          statusFilter !== "all" ? { status: statusFilter } : undefined
+        )
+        setJobs(fetchedJobs)
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch jobs",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchJobs()
+  }, [statusFilter, toast])
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!searchTerm.trim()) return
+
+    try {
+      const searchResults = await jobService.searchJobs(searchTerm)
+      setJobs(searchResults)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to search jobs",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleStatusChange = async (jobId: string, newStatus: JobStatus) => {
+    try {
+      await jobService.updateJobStatus(jobId, newStatus)
+      setJobs(jobs.map(job => 
+        job.id === jobId ? { ...job, status: newStatus } : job
+      ))
+      toast({
+        title: "Success",
+        description: `Job status updated to ${newStatus}`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update job status",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDelete = async (jobId: string) => {
+    try {
+      await jobService.deleteJob(jobId)
+      setJobs(jobs.filter(job => job.id !== jobId))
+      toast({
+        title: "Success",
+        description: "Job deleted successfully",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete job",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -118,12 +133,18 @@ export default function JobListingsPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="relative w-full sm:w-96">
+              <form onSubmit={handleSearch} className="relative w-full sm:w-96">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input type="search" placeholder="Search jobs..." className="w-full pl-9" />
-              </div>
+                <Input 
+                  type="search" 
+                  placeholder="Search jobs..." 
+                  className="w-full pl-9"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </form>
               <div className="flex items-center gap-2">
-                <Select defaultValue="all">
+                <Select value={statusFilter} onValueChange={(value: JobStatus | "all") => setStatusFilter(value)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Filter by status" />
                   </SelectTrigger>
@@ -170,7 +191,7 @@ export default function JobListingsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {jobListings.map((job) => (
+                {jobs.map((job) => (
                   <TableRow key={job.id}>
                     <TableCell className="font-medium">{job.title}</TableCell>
                     <TableCell>{job.department}</TableCell>
@@ -180,9 +201,9 @@ export default function JobListingsPage() {
                       <Badge
                         variant="outline"
                         className={
-                          job.status === "Published"
+                          job.status === "published"
                             ? "bg-green-100 text-green-800 hover:bg-green-100 border-green-200"
-                            : job.status === "Draft"
+                            : job.status === "draft"
                               ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-yellow-200"
                               : "bg-red-100 text-red-800 hover:bg-red-100 border-red-200"
                         }
@@ -190,8 +211,8 @@ export default function JobListingsPage() {
                         {job.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{job.applications}</TableCell>
-                    <TableCell>{job.datePosted ? new Date(job.datePosted).toLocaleDateString() : "-"}</TableCell>
+                    <TableCell>{job.applicationsCount}</TableCell>
+                    <TableCell>{job.postedAt ? new Date(job.postedAt).toLocaleDateString() : "-"}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -214,13 +235,16 @@ export default function JobListingsPage() {
                             </DropdownMenuItem>
                           </Link>
                           <DropdownMenuSeparator />
-                          {job.status === "Published" ? (
-                            <DropdownMenuItem>
+                          {job.status === "published" ? (
+                            <DropdownMenuItem onClick={() => handleStatusChange(job.id, "closed")}>
                               <Trash2 className="h-4 w-4 mr-2" />
                               Close Job
                             </DropdownMenuItem>
                           ) : (
-                            <DropdownMenuItem className="text-red-600">
+                            <DropdownMenuItem 
+                              className="text-red-600"
+                              onClick={() => handleDelete(job.id)}
+                            >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Delete
                             </DropdownMenuItem>

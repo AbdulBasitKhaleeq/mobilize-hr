@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { PlusCircle, Search, Filter, MoreHorizontal, User, CheckCircle, XCircle } from "lucide-react"
+import { PlusCircle, Search, Filter, MoreHorizontal, User as UserIcon, CheckCircle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -28,83 +28,45 @@ import {
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import DashboardLayout from "../../layouts/dashboard-layout"
-
-// Sample users data
-const users = [
-  {
-    id: 1,
-    name: "John Doe",
-    email: "john.doe@example.com",
-    role: "admin",
-    department: "Management",
-    status: "active",
-    lastActive: "2023-05-20T10:30:00",
-  },
-  {
-    id: 2,
-    name: "Maria Rodriguez",
-    email: "maria.rodriguez@example.com",
-    role: "hr_manager",
-    department: "Human Resources",
-    status: "active",
-    lastActive: "2023-05-20T09:15:00",
-  },
-  {
-    id: 3,
-    name: "Alex Thompson",
-    email: "alex.thompson@example.com",
-    role: "interviewer",
-    department: "Engineering",
-    status: "active",
-    lastActive: "2023-05-19T16:45:00",
-  },
-  {
-    id: 4,
-    name: "David Kim",
-    email: "david.kim@example.com",
-    role: "interviewer",
-    department: "Engineering",
-    status: "active",
-    lastActive: "2023-05-19T14:20:00",
-  },
-  {
-    id: 5,
-    name: "Jessica Chen",
-    email: "jessica.chen@example.com",
-    role: "hr_manager",
-    department: "Human Resources",
-    status: "inactive",
-    lastActive: "2023-05-15T11:10:00",
-  },
-  {
-    id: 6,
-    name: "Robert Johnson",
-    email: "robert.johnson@example.com",
-    role: "interviewer",
-    department: "Product",
-    status: "active",
-    lastActive: "2023-05-20T08:30:00",
-  },
-  {
-    id: 7,
-    name: "Emily Davis",
-    email: "emily.davis@example.com",
-    role: "interviewer",
-    department: "Design",
-    status: "active",
-    lastActive: "2023-05-18T13:45:00",
-  },
-]
+import { userService, User as FirebaseUser, UserRole, UserStatus } from "@/lib/firebase/db"
+import { useAuth } from "@/contexts/AuthContext"
+import { createUserWithEmailAndPassword } from "firebase/auth"
+import { auth } from "@/lib/firebase"
 
 export default function UsersPage() {
   const { toast } = useToast()
+  const { user: currentUser } = useAuth()
+  const [users, setUsers] = useState<FirebaseUser[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [roleFilter, setRoleFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all")
+  const [statusFilter, setStatusFilter] = useState<UserStatus | "all">("all")
   const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteRole, setInviteRole] = useState("interviewer")
+  const [invitePassword, setInvitePassword] = useState("")
+  const [inviteRole, setInviteRole] = useState<UserRole>("interviewer")
+  const [inviteDepartment, setInviteDepartment] = useState("engineering")
   const [isInviting, setIsInviting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Fetch users on component mount
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const fetchedUsers = await userService.getUsers();
+        setUsers(fetchedUsers);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch users. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUsers();
+  }, [toast]);
 
   // Filter users based on search query and filters
   const filteredUsers = users.filter((user) => {
@@ -120,40 +82,102 @@ export default function UsersPage() {
     return matchesSearch && matchesRole && matchesStatus
   })
 
-  const handleInviteUser = () => {
+  const handleInviteUser = async () => {
     setIsInviting(true)
 
-    // Validate email
-    if (!inviteEmail || !inviteEmail.includes("@")) {
+    try {
+      // Validate email and password
+      if (!inviteEmail || !inviteEmail.includes("@")) {
+        toast({
+          title: "Invalid Email",
+          description: "Please enter a valid email address.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (!invitePassword || invitePassword.length < 6) {
+        toast({
+          title: "Invalid Password",
+          description: "Password must be at least 6 characters long.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Create user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, inviteEmail, invitePassword)
+      const authUser = userCredential.user
+
+      // Create user in Firestore
+      await userService.createUser({
+        id: authUser.uid,
+        name: inviteEmail.split('@')[0], // Default name from email
+        email: inviteEmail,
+        role: inviteRole,
+        department: inviteDepartment,
+        status: 'active',
+        lastActive: new Date(),
+      })
+
+      // Refresh users list
+      const updatedUsers = await userService.getUsers();
+      setUsers(updatedUsers);
+
       toast({
-        title: "Invalid Email",
-        description: "Please enter a valid email address.",
+        title: "User Created",
+        description: `User ${inviteEmail} has been created successfully.`,
+      })
+
+      setIsDialogOpen(false)
+      setInviteEmail("")
+      setInvitePassword("")
+    } catch (error: any) {
+      let errorMessage = "Failed to create user. Please try again."
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = "This email is already registered."
+      }
+      toast({
+        title: "Error",
+        description: errorMessage,
         variant: "destructive",
       })
+    } finally {
       setIsInviting(false)
-      return
     }
-
-    // Simulate invitation
-    setTimeout(() => {
-      setIsInviting(false)
-      setIsDialogOpen(false)
-      toast({
-        title: "Invitation Sent",
-        description: `An invitation has been sent to ${inviteEmail}.`,
-      })
-      setInviteEmail("")
-    }, 1500)
   }
 
-  const handleStatusToggle = (userId: number, currentStatus: string) => {
-    const newStatus = currentStatus === "active" ? "inactive" : "active"
+  const handleStatusToggle = async (userId: string, currentStatus: UserStatus) => {
+    try {
+      const newStatus = currentStatus === "active" ? "inactive" : "active"
+      await userService.updateUserStatus(userId, newStatus)
 
-    // Simulate status update
-    toast({
-      title: "User Status Updated",
-      description: `User status has been changed to ${newStatus}.`,
-    })
+      // Update local state
+      setUsers(users.map(user => 
+        user.id === userId ? { ...user, status: newStatus } : user
+      ))
+
+      toast({
+        title: "User Status Updated",
+        description: `User status has been changed to ${newStatus}.`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update user status. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -189,8 +213,18 @@ export default function UsersPage() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Enter password"
+                      value={invitePassword}
+                      onChange={(e) => setInvitePassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="role">Role</Label>
-                    <Select value={inviteRole} onValueChange={setInviteRole}>
+                    <Select value={inviteRole} onValueChange={(value: UserRole) => setInviteRole(value)}>
                       <SelectTrigger id="role">
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
@@ -203,7 +237,7 @@ export default function UsersPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="department">Department</Label>
-                    <Select defaultValue="engineering">
+                    <Select value={inviteDepartment} onValueChange={setInviteDepartment}>
                       <SelectTrigger id="department">
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
@@ -218,17 +252,13 @@ export default function UsersPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="message">Personal Message (Optional)</Label>
-                    <Input id="message" placeholder="Add a personal message to the invitation email" />
-                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Cancel
                   </Button>
                   <Button onClick={handleInviteUser} disabled={isInviting}>
-                    {isInviting ? "Sending Invitation..." : "Send Invitation"}
+                    {isInviting ? "Creating User..." : "Create User"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -250,7 +280,7 @@ export default function UsersPage() {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <Select value={roleFilter} onValueChange={(value: UserRole | "all") => setRoleFilter(value)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Filter by role" />
                   </SelectTrigger>
@@ -261,19 +291,16 @@ export default function UsersPage() {
                     <SelectItem value="interviewer">Interviewer</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <Select value={statusFilter} onValueChange={(value: UserStatus | "all") => setStatusFilter(value)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Filter by status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button variant="outline" size="icon">
-                  <Filter className="h-4 w-4" />
-                </Button>
               </div>
             </div>
           </CardHeader>
@@ -286,16 +313,16 @@ export default function UsersPage() {
                   <TableHead>Department</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Last Active</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center space-x-3">
                         <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                          <User className="h-5 w-5" />
+                          <UserIcon className="h-5 w-5" />
                         </div>
                         <div>
                           <div className="font-medium">{user.name}</div>
@@ -304,65 +331,45 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={
-                          user.role === "admin"
-                            ? "bg-purple-100 text-purple-800 hover:bg-purple-100 border-purple-200"
-                            : user.role === "hr_manager"
-                              ? "bg-blue-100 text-blue-800 hover:bg-blue-100 border-blue-200"
-                              : "bg-green-100 text-green-800 hover:bg-green-100 border-green-200"
-                        }
-                      >
-                        {user.role === "admin" ? "Admin" : user.role === "hr_manager" ? "HR Manager" : "Interviewer"}
-                      </Badge>
+                      <Badge variant="outline">{user.role}</Badge>
                     </TableCell>
                     <TableCell>{user.department}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`h-2 w-2 rounded-full ${user.status === "active" ? "bg-green-500" : "bg-red-500"}`}
-                        />
-                        <span className="capitalize">{user.status}</span>
-                      </div>
+                      <Badge variant={user.status === "active" ? "default" : "secondary"}>
+                        {user.status}
+                      </Badge>
                     </TableCell>
                     <TableCell>
-                      {new Date(user.lastActive).toLocaleDateString()} at{" "}
-                      {new Date(user.lastActive).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {new Date(user.lastActive).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" className="h-8 w-8 p-0">
                             <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Actions</span>
+                            <span className="sr-only">Open menu</span>
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <Link href={`/dashboard/users/${user.id}`}>
-                            <DropdownMenuItem>View Profile</DropdownMenuItem>
-                          </Link>
-                          <Link href={`/dashboard/users/${user.id}/edit`}>
-                            <DropdownMenuItem>Edit User</DropdownMenuItem>
-                          </Link>
                           <DropdownMenuItem onClick={() => handleStatusToggle(user.id, user.status)}>
                             {user.status === "active" ? (
                               <>
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Deactivate User
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Deactivate
                               </>
                             ) : (
                               <>
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Activate User
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Activate
                               </>
                             )}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">Delete User</DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Link href={`/dashboard/users/${user.id}`}>
+                              View Details
+                            </Link>
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

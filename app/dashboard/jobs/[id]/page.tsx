@@ -545,7 +545,7 @@ export default function JobDetailsPage({ params }: { params: { id: string } }) {
                       <p className="text-muted-foreground mb-4">
                         Go to the applications page to view and manage all applications for this job.
                       </p>
-                      <Link href="/dashboard/applications">
+                      <Link href="/dashboard/applicants">
                         <Button>View Applications</Button>
                       </Link>
                     </div>

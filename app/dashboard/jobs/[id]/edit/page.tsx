@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, Save, X } from "lucide-react"
@@ -18,96 +18,198 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import DashboardLayout from "../../../../layouts/dashboard-layout"
-
-// Sample job data for editing
-const job = {
-  id: 1,
-  title: "Senior Frontend Developer",
-  department: "engineering",
-  team: "Frontend Team",
-  location: "San Francisco, CA",
-  type: "full-time",
-  experience: "senior",
-  remote: true,
-  remoteRegions: "us-only",
-  status: "published",
-  datePosted: "2023-05-01",
-  dateExpires: "2023-06-01",
-  salary: {
-    min: 120000,
-    max: 150000,
-    currency: "usd",
-    visible: true,
-  },
-  benefits:
-    "Health insurance, 401(k) matching, flexible working hours, professional development budget, home office stipend",
-  summary:
-    "We are looking for an experienced Frontend Developer to join our team and help us build beautiful, responsive web applications using modern JavaScript frameworks.",
-  description: `## About the Role
-
-As a Senior Frontend Developer at our company, you will be responsible for building and maintaining web applications using modern JavaScript frameworks. You will work closely with our design and backend teams to create seamless user experiences.
-
-## What You'll Do
-
-- Develop new user-facing features using React.js
-- Build reusable components and front-end libraries for future use
-- Translate designs and wireframes into high-quality code
-- Optimize components for maximum performance across devices and browsers
-- Collaborate with back-end developers and designers`,
-  requirements: `- 3+ years of experience with React.js
-- Strong proficiency in JavaScript, including DOM manipulation and the JavaScript object model
-- Experience with TypeScript and modern JavaScript libraries and frameworks
-- Familiarity with RESTful APIs and modern authorization mechanisms
-- Experience with common front-end development tools such as Babel, Webpack, NPM, etc.
-- Good understanding of asynchronous request handling, partial page updates, and AJAX`,
-  responsibilities: `- Implement responsive design and ensure cross-browser compatibility
-- Participate in code reviews and provide constructive feedback to other developers
-- Work with product managers to understand requirements and provide technical solutions
-- Debug issues reported by users and implement fixes
-- Stay up-to-date with emerging trends and technologies in frontend development`,
-  skills: "React, TypeScript, JavaScript, HTML, CSS, Redux, Webpack, Git",
-  education: "Bachelor's degree in Computer Science or related field, or equivalent practical experience",
-  certifications: "",
-  applicationMethod: "internal",
-  applicationUrl: "",
-  applicationEmail: "",
-  requiredDocuments: {
-    resume: true,
-    coverLetter: false,
-    portfolio: true,
-  },
-  visibility: {
-    website: true,
-    jobBoards: true,
-    internal: false,
-  },
-  notifications: {
-    applications: true,
-    expiry: true,
-  },
-}
+import { jobService, Job, JobType, ExperienceLevel, JobStatus } from "@/lib/firebase/db"
+import { useAuth } from "@/contexts/AuthContext"
+import { Badge } from "@/components/ui/badge"
+import { userService } from "@/lib/firebase/db"
 
 export default function EditJobPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const { toast } = useToast()
+  const { user } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [jobStatus, setJobStatus] = useState(job.status)
-  const [isRemote, setIsRemote] = useState(job.remote)
-  const [salaryVisible, setSalaryVisible] = useState(job.salary.visible)
+  const [error, setError] = useState<string | null>(null)
+  const [job, setJob] = useState<Job | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [formData, setFormData] = useState({
+    title: "",
+    department: "",
+    team: "",
+    type: "full-time" as JobType,
+    experienceLevel: "mid" as ExperienceLevel,
+    location: "",
+    isRemote: false,
+    remoteRegions: "",
+    salaryMin: 0,
+    salaryMax: 0,
+    salaryCurrency: "usd",
+    benefits: "",
+    summary: "",
+    description: "",
+    requirements: [""],
+    responsibilities: [""],
+    skills: "",
+    education: "",
+    certifications: "",
+    status: "draft" as JobStatus,
+    interviewers: [] as string[],
+    hrManagers: [] as string[],
+  })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    const fetchJob = async () => {
+      try {
+        const jobData = await jobService.getJobById(params.id)
+        if (!jobData) {
+          toast({
+            title: "Error",
+            description: "Job not found",
+            variant: "destructive",
+          })
+          router.push("/dashboard/jobs")
+          return
+        }
+        setJob(jobData)
+        setFormData({
+          title: jobData.title,
+          department: jobData.department,
+          team: jobData.team || "",
+          type: jobData.type,
+          experienceLevel: jobData.experienceLevel,
+          location: jobData.location,
+          isRemote: jobData.isRemote,
+          remoteRegions: jobData.remoteRegions || "",
+          salaryMin: jobData.salaryMin || 0,
+          salaryMax: jobData.salaryMax || 0,
+          salaryCurrency: jobData.salaryCurrency || "usd",
+          benefits: jobData.benefits || "",
+          summary: jobData.summary || "",
+          description: jobData.description,
+          requirements: jobData.requirements,
+          responsibilities: jobData.responsibilities,
+          skills: jobData.skills.join(", "),
+          education: jobData.education || "",
+          certifications: jobData.certifications || "",
+          status: jobData.status,
+          interviewers: jobData.interviewers as string[],
+          hrManagers: jobData.hrManagers as string[],
+        })
+      } catch (error) {
+        console.error("Error fetching job:", error)
+        toast({
+          title: "Error",
+          description: "Failed to fetch job data",
+          variant: "destructive",
+        })
+        router.push("/dashboard/jobs")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchJob()
+  }, [params.id, router, toast])
+
+  useEffect(() => {
+    // Fetch users for interviewers and HR managers
+    const fetchUsers = async () => {
+      try {
+        const usersData = await userService.getUsers()
+        setUsers(usersData)
+      } catch (error) {
+        console.error("Error fetching users:", error)
+      }
+    }
+
+    fetchUsers()
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
+    if (!user) return
 
-    // Simulate form submission
-    setTimeout(() => {
-      setIsSubmitting(false)
-      toast({
-        title: "Job Updated",
-        description: "Your job listing has been successfully updated.",
-      })
+    try {
+      setIsSubmitting(true)
+      const jobData: Partial<Job> = {
+        title: formData.title,
+        description: formData.description,
+        requirements: formData.requirements,
+        responsibilities: formData.responsibilities,
+        location: formData.location,
+        salaryMin: formData.salaryMin,
+        salaryMax: formData.salaryMax,
+        salaryCurrency: formData.salaryCurrency,
+        type: formData.type,
+        status: formData.status,
+        interviewers: formData.interviewers,
+        hrManagers: formData.hrManagers,
+        department: formData.department,
+        team: formData.team,
+        experienceLevel: formData.experienceLevel,
+        isRemote: formData.isRemote,
+        remoteRegions: formData.remoteRegions,
+        benefits: formData.benefits,
+        summary: formData.summary,
+        skills: formData.skills.split(',').map(skill => skill.trim()),
+        education: formData.education,
+        certifications: formData.certifications
+      }
+
+      await jobService.updateJob(params.id, jobData)
       router.push(`/dashboard/jobs/${params.id}`)
-    }, 1500)
+    } catch (error) {
+      console.error('Error updating job:', error)
+      setError('Failed to update job. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const addRequirement = () => {
+    setFormData({
+      ...formData,
+      requirements: [...formData.requirements, ""],
+    });
+  };
+
+  const removeRequirement = (index: number) => {
+    setFormData({
+      ...formData,
+      requirements: formData.requirements.filter((_, i) => i !== index),
+    });
+  };
+
+  const addResponsibility = () => {
+    setFormData({
+      ...formData,
+      responsibilities: [...formData.responsibilities, ""],
+    });
+  };
+
+  const removeResponsibility = (index: number) => {
+    setFormData({
+      ...formData,
+      responsibilities: formData.responsibilities.filter((_, i) => i !== index),
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-4 text-muted-foreground">Loading job data...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!job) {
+    return null
   }
 
   return (
@@ -214,7 +316,11 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                         <Label htmlFor="experience">
                           Experience Level <span className="text-red-500">*</span>
                         </Label>
-                        <Select defaultValue={job.experience} required>
+                        <Select 
+                          value={formData.experienceLevel}
+                          onValueChange={(value: ExperienceLevel) => setFormData({ ...formData, experienceLevel: value })}
+                          required
+                        >
                           <SelectTrigger id="experience">
                             <SelectValue placeholder="Select experience level" />
                           </SelectTrigger>
@@ -242,8 +348,8 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                     <div className="flex items-center space-x-2">
                       <Checkbox
                         id="remote"
-                        checked={isRemote}
-                        onCheckedChange={(checked) => setIsRemote(checked as boolean)}
+                        checked={formData.isRemote}
+                        onCheckedChange={(checked) => setFormData({ ...formData, isRemote: checked as boolean })}
                       />
                       <Label htmlFor="remote">This is a remote position</Label>
                     </div>
@@ -256,7 +362,7 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                         <Input id="location" defaultValue={job.location} required />
                       </div>
 
-                      {isRemote && (
+                      {formData.isRemote && (
                         <div className="space-y-2">
                           <Label htmlFor="remote-regions">Remote Regions</Label>
                           <Select defaultValue={job.remoteRegions}>
@@ -277,47 +383,43 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
 
                     <Separator />
 
-                    <div className="space-y-2">
-                      <Label>Salary Visibility</Label>
-                      <RadioGroup
-                        defaultValue={salaryVisible ? "visible" : "hidden"}
-                        className="flex flex-col space-y-1"
-                        onValueChange={(value) => setSalaryVisible(value === "visible")}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="visible" id="salary-visible" />
-                          <Label htmlFor="salary-visible">Display salary range on job posting</Label>
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Salary Range</Label>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="salaryMin">Minimum</Label>
+                            <Input
+                              id="salaryMin"
+                              type="number"
+                              value={formData.salaryMin}
+                              onChange={(e) => setFormData({ ...formData, salaryMin: parseInt(e.target.value) })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="salaryMax">Maximum</Label>
+                            <Input
+                              id="salaryMax"
+                              type="number"
+                              value={formData.salaryMax}
+                              onChange={(e) => setFormData({ ...formData, salaryMax: parseInt(e.target.value) })}
+                            />
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="hidden" id="salary-hidden" />
-                          <Label htmlFor="salary-hidden">Keep salary range hidden</Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="salary-min">Minimum Salary</Label>
-                        <Input id="salary-min" type="number" defaultValue={job.salary.min.toString()} />
                       </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="salary-max">Maximum Salary</Label>
-                        <Input id="salary-max" type="number" defaultValue={job.salary.max.toString()} />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="salary-currency">Currency</Label>
-                        <Select defaultValue={job.salary.currency}>
-                          <SelectTrigger id="salary-currency">
+                      <div>
+                        <Label htmlFor="salaryCurrency">Currency</Label>
+                        <Select
+                          value={formData.salaryCurrency}
+                          onValueChange={(value) => setFormData({ ...formData, salaryCurrency: value })}
+                        >
+                          <SelectTrigger>
                             <SelectValue placeholder="Select currency" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="usd">USD ($)</SelectItem>
-                            <SelectItem value="eur">EUR (€)</SelectItem>
-                            <SelectItem value="gbp">GBP (£)</SelectItem>
-                            <SelectItem value="cad">CAD ($)</SelectItem>
-                            <SelectItem value="aud">AUD ($)</SelectItem>
+                            <SelectItem value="usd">USD</SelectItem>
+                            <SelectItem value="eur">EUR</SelectItem>
+                            <SelectItem value="gbp">GBP</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -344,7 +446,13 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                       <Label htmlFor="summary">
                         Summary <span className="text-red-500">*</span>
                       </Label>
-                      <Textarea id="summary" defaultValue={job.summary} rows={3} required />
+                      <Textarea 
+                        id="summary" 
+                        value={formData.summary}
+                        onChange={(e) => setFormData({ ...formData, summary: e.target.value })}
+                        rows={3} 
+                        required 
+                      />
                       <p className="text-xs text-muted-foreground">
                         This will appear at the top of the job posting. Keep it concise and engaging.
                       </p>
@@ -354,7 +462,13 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                       <Label htmlFor="description">
                         Full Description <span className="text-red-500">*</span>
                       </Label>
-                      <Textarea id="description" defaultValue={job.description} rows={10} required />
+                      <Textarea 
+                        id="description" 
+                        value={formData.description}
+                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                        rows={10} 
+                        required 
+                      />
                       <p className="text-xs text-muted-foreground">
                         You can use Markdown formatting for headings, lists, and emphasis.
                       </p>
@@ -364,14 +478,62 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                       <Label htmlFor="requirements">
                         Requirements <span className="text-red-500">*</span>
                       </Label>
-                      <Textarea id="requirements" defaultValue={job.requirements} rows={5} required />
+                      <div className="space-y-2">
+                        {formData.requirements.map((requirement, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              value={requirement}
+                              onChange={(e) => {
+                                const newRequirements = [...formData.requirements];
+                                newRequirements[index] = e.target.value;
+                                setFormData({ ...formData, requirements: newRequirements });
+                              }}
+                              placeholder={`Requirement ${index + 1}`}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => removeRequirement(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button variant="outline" onClick={addRequirement}>
+                          Add Requirement
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="responsibilities">
                         Responsibilities <span className="text-red-500">*</span>
                       </Label>
-                      <Textarea id="responsibilities" defaultValue={job.responsibilities} rows={5} required />
+                      <div className="space-y-2">
+                        {formData.responsibilities.map((responsibility, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              value={responsibility}
+                              onChange={(e) => {
+                                const newResponsibilities = [...formData.responsibilities];
+                                newResponsibilities[index] = e.target.value;
+                                setFormData({ ...formData, responsibilities: newResponsibilities });
+                              }}
+                              placeholder={`Responsibility ${index + 1}`}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => removeResponsibility(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button variant="outline" onClick={addResponsibility}>
+                          Add Responsibility
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </CardContent>
@@ -388,7 +550,13 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                       <Label htmlFor="skills">
                         Required Skills <span className="text-red-500">*</span>
                       </Label>
-                      <Textarea id="skills" defaultValue={job.skills} rows={3} required />
+                      <Textarea 
+                        id="skills" 
+                        value={formData.skills}
+                        onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
+                        rows={3} 
+                        required 
+                      />
                       <p className="text-xs text-muted-foreground">
                         Enter skills separated by commas. These will be used for matching candidates.
                       </p>
@@ -396,12 +564,22 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
 
                     <div className="space-y-2">
                       <Label htmlFor="education">Education Requirements (Optional)</Label>
-                      <Textarea id="education" defaultValue={job.education} rows={2} />
+                      <Textarea 
+                        id="education" 
+                        value={formData.education}
+                        onChange={(e) => setFormData({ ...formData, education: e.target.value })}
+                        rows={2} 
+                      />
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="certifications">Certifications (Optional)</Label>
-                      <Textarea id="certifications" defaultValue={job.certifications} rows={2} />
+                      <Textarea 
+                        id="certifications" 
+                        value={formData.certifications}
+                        onChange={(e) => setFormData({ ...formData, certifications: e.target.value })}
+                        rows={2} 
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -411,64 +589,6 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
             <TabsContent value="settings" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Application Settings</CardTitle>
-                  <CardDescription>Update how candidates can apply for this job</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Application Method</Label>
-                      <RadioGroup defaultValue={job.applicationMethod} className="flex flex-col space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="internal" id="internal" />
-                          <Label htmlFor="internal">Use internal application form</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="external" id="external" />
-                          <Label htmlFor="external">Redirect to external application URL</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="email" id="email" />
-                          <Label htmlFor="email">Receive applications via email</Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="application-url">External Application URL (Optional)</Label>
-                      <Input id="application-url" defaultValue={job.applicationUrl} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="application-email">Application Email (Optional)</Label>
-                      <Input id="application-email" type="email" defaultValue={job.applicationEmail} />
-                    </div>
-
-                    <Separator />
-
-                    <div className="space-y-2">
-                      <Label>Required Documents</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="require-resume" defaultChecked={job.requiredDocuments.resume} />
-                          <Label htmlFor="require-resume">Resume/CV</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="require-cover-letter" defaultChecked={job.requiredDocuments.coverLetter} />
-                          <Label htmlFor="require-cover-letter">Cover Letter</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="require-portfolio" defaultChecked={job.requiredDocuments.portfolio} />
-                          <Label htmlFor="require-portfolio">Portfolio</Label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
                   <CardTitle>Publication Settings</CardTitle>
                   <CardDescription>Update when and how the job will be published</CardDescription>
                 </CardHeader>
@@ -476,7 +596,11 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label>Job Status</Label>
-                      <RadioGroup value={jobStatus} onValueChange={setJobStatus} className="flex flex-col space-y-1">
+                      <RadioGroup 
+                        value={formData.status} 
+                        onValueChange={(value: JobStatus) => setFormData({ ...formData, status: value })}
+                        className="flex flex-col space-y-1"
+                      >
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="draft" id="draft" />
                           <Label htmlFor="draft">Save as Draft</Label>
@@ -492,47 +616,101 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
                       </RadioGroup>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="expiry-date">Expiry Date (Optional)</Label>
-                        <Input id="expiry-date" type="date" defaultValue={job.dateExpires} />
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Interviewers</Label>
+                        <Select
+                          value={formData.interviewers[0] || ""}
+                          onValueChange={(value) => {
+                            if (!formData.interviewers.includes(value)) {
+                              setFormData({
+                                ...formData,
+                                interviewers: [...formData.interviewers, value],
+                              });
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select interviewer" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {users.map((user) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {formData.interviewers.map((interviewerId) => {
+                            const interviewer = users.find((u) => u.id === interviewerId);
+                            return (
+                              <Badge key={interviewerId} variant="secondary">
+                                {interviewer?.name}
+                                <button
+                                  className="ml-1 hover:text-destructive"
+                                  onClick={() => {
+                                    setFormData({
+                                      ...formData,
+                                      interviewers: formData.interviewers.filter(
+                                        (id) => id !== interviewerId
+                                      ),
+                                    });
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </Badge>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="expiry-time">Expiry Time (Optional)</Label>
-                        <Input id="expiry-time" type="time" defaultValue="23:59" />
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="space-y-2">
-                      <Label>Job Visibility</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="visibility-website" defaultChecked={job.visibility.website} />
-                          <Label htmlFor="visibility-website">Company Website</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="visibility-job-boards" defaultChecked={job.visibility.jobBoards} />
-                          <Label htmlFor="visibility-job-boards">External Job Boards</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="visibility-internal" defaultChecked={job.visibility.internal} />
-                          <Label htmlFor="visibility-internal">Internal Employees Only</Label>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Notifications</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="notify-applications" defaultChecked={job.notifications.applications} />
-                          <Label htmlFor="notify-applications">Notify me when someone applies</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="notify-expiry" defaultChecked={job.notifications.expiry} />
-                          <Label htmlFor="notify-expiry">Notify me before job expires</Label>
+                      <div>
+                        <Label>HR Managers</Label>
+                        <Select
+                          value={formData.hrManagers[0] || ""}
+                          onValueChange={(value) => {
+                            if (!formData.hrManagers.includes(value)) {
+                              setFormData({
+                                ...formData,
+                                hrManagers: [...formData.hrManagers, value],
+                              });
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select HR manager" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {users.map((user) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {formData.hrManagers.map((hrManagerId) => {
+                            const hrManager = users.find((u) => u.id === hrManagerId);
+                            return (
+                              <Badge key={hrManagerId} variant="secondary">
+                                {hrManager?.name}
+                                <button
+                                  className="ml-1 hover:text-destructive"
+                                  onClick={() => {
+                                    setFormData({
+                                      ...formData,
+                                      hrManagers: formData.hrManagers.filter(
+                                        (id) => id !== hrManagerId
+                                      ),
+                                    });
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </Badge>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
