@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -11,9 +10,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { useAuth } from "@/contexts/AuthContext"
+import { toast } from "sonner"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { signIn } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
@@ -63,13 +65,11 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // For demo purposes, redirect to dashboard
+      await signIn(formData.email, formData.password)
       router.push("/dashboard")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login error:", error)
+      toast.error(error.message || "Failed to sign in. Please check your credentials.")
     } finally {
       setIsLoading(false)
     }
